@@ -116,9 +116,16 @@ class Unit {
   get gpus()        {return this.unit.gpus.length}
   get os()          {return get_os_icon(this.mach.get_os())}
   get os_text()     {return this.os + this.os_title}
-  get os_title()    {return this.mach.get_os()}
+  get os_text_title() {return this.os_title}
   get paused()      {return !!this.unit.pause_reason}
   get work_server() {return this.assign.ws}
+
+
+  get os_title() {
+    const {os, cpu} = this.mach.get_info()
+    const arch = cpu === 'amd64' ? 'x64' : cpu
+    return os && arch ? `${os} (${arch})` : os
+  }
 
 
   get finish()  {
