@@ -118,8 +118,11 @@ export default {
         filter_unit(this.filter, unit, 'os',       'os_title') &&
         filter_unit(this.filter, unit, 'state'               ) &&
         filter_unit(this.filter, unit, 'resources'           ) &&
-        (!this.filter.days || !isFinite(this.filter.days) ||
-          to_days(new Date()) - to_days(unit.assign.time) <= days) &&
+        (!this.filter.days || !isFinite(this.filter.days) || (() => {
+        let time = unit.unit.end_time || unit.assign.time
+        return to_days(new Date()) - to_days(time) <= days
+        })()) &&
+
         (!this.filter.complete || unit.wu_progress == 1)
       )
     },
@@ -137,8 +140,89 @@ export default {
     ppd_min()   {return format_ppd(array_min(this.wus, 'ppd_raw'))},
     ppd_max()   {return format_ppd(array_max(this.wus, 'ppd_raw'))},
     ppd_avg()   {return format_ppd(Math.round(array_avg(this.wus, 'ppd_raw')))},
-  },
 
+    ppd_current() {
+      let total = this.wus.reduce((sum, unit) => {
+        if (!['RUN', 'FINISH'].includes(unit.state)) return sum
+        return sum + (isFinite(unit.ppd_raw) ? unit.ppd_raw : 0)
+      }, 0)
+
+      return format_ppd(Math.round(total))
+    },
+
+
+    historical_stats() {
+      let points = 0
+      let count = 0
+      let first = undefined
+      let last = undefined
+
+      for (let unit of this.wus) {
+        if (unit.state != 'CREDITED') continue
+
+        let ppd = unit.ppd_raw
+        let seconds = unit.run_time_secs
+
+        if (!isFinite(ppd) || !isFinite(seconds) || seconds <= 0) continue
+
+        // Estimate points produced by this WU from its recorded PPD estimate.
+        points += ppd * seconds / 86400
+        count++
+
+        // Determine the wall-clock period covered by the retained history.
+        let start = new Date(unit.assign.time).getTime()
+        let end = new Date(unit.unit.end_time).getTime()
+
+        // Older/incomplete history may not contain end_time.
+        if (!isFinite(end) && isFinite(start))
+          end = start + seconds * 1000
+
+        if (isFinite(start) && (first == undefined || start < first))
+          first = start
+
+        if (isFinite(end) && (last == undefined || last < end))
+          last = end
+      }
+
+      if (!count)
+        return {ppd: '???', credit: '???'}
+
+      let period = 0
+      let days = parseFloat(this.filter.days)
+
+      // If "Within" is selected, that is the requested observation period.
+      // This correctly includes idle time within that period.
+      if (this.filter.days !== '' && isFinite(days) && 0 < days) {
+        period = days * 86400
+
+      // Otherwise use the span of the locally retained matching history.
+      } else if (first != undefined && last != undefined && first < last) {
+        period = (last - first) / 1000
+      }
+
+      let historical_ppd = period
+        ? Math.round(points * 86400 / period)
+        : undefined
+
+      return {
+        ppd: isFinite(historical_ppd)
+          ? format_ppd(historical_ppd)
+          : '???',
+
+        credit: Math.round(points).toLocaleString(),
+      }
+    },
+
+
+    ppd_historical() {
+      return this.historical_stats.ppd
+    },
+
+
+    credit_estimated_sum() {
+      return this.historical_stats.credit
+    },
+  },
 
   created() {this.default_filter = Object.assign({}, this.filter)},
   mounted() {this.$machs.wus_enable(true)},
@@ -204,10 +288,10 @@ export default {
               option(value="Any") Any
               option(v-for="r in resources", :value="r") {{r}}
 
-          td(title="Only include units assigned within this number of days.")
+          td(title="Only include active units assigned, or finished units completed, within this number of days.")
             input(v-model="filter.days", type=number, placeholder="days",
               :class="{error: !isFinite(filter.days)}")
-
+          
           td(title="Only include completed units.")
             input(type="checkbox", v-model="filter.complete")
 
@@ -226,7 +310,7 @@ export default {
           th Max
 
       tbody
-        tr(title="Time Per Frame.  Time to complete 1% of the unit.")
+        tr(title="Time Per Frame. Time to complete 1% of the unit.")
           th TPF
           td {{tpf_avg}}
           td {{tpf_min}}
@@ -238,6 +322,27 @@ export default {
           td {{ppd_min}}
           td {{ppd_max}}
 
+        tr
+          th
+            | Current Output PPD
+            span.fa.fa-info-circle.stat-help(
+              title="Sum of locally estimated PPD for matching work units currently running or finishing.")
+          td(colspan="3") {{ppd_current}}
+
+        tr
+          th
+            | Historical Output PPD
+            span.fa.fa-info-circle.stat-help(
+              title="Estimated average output over the selected period, calculated from locally stored work unit PPD estimates and run times. This is not based on the actual credit awarded by Folding@home.")
+          td(colspan="3") {{ppd_historical}}
+
+        tr
+          th
+            | Estimated Credit
+            span.fa.fa-info-circle.stat-help(
+              title="Estimated points calculated from locally stored PPD estimates and work unit run times. This may differ from the actual credit awarded by Folding@home.")
+          td(colspan="3") {{credit_estimated_sum}}
+		  
     HelpBalloon.header-title(name="Recent Work Unit History"): p.
       A log of recent work WUs completed by your machines.
 
@@ -272,4 +377,10 @@ export default {
 
       tr > :not(:first-child)
         width 33%
+		
+      .stat-help
+        margin-left .4em
+        cursor help
+        opacity .7
+        font-size .85em
 </style>
