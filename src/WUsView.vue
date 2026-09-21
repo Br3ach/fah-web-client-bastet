@@ -324,25 +324,27 @@ export default {
 
         tr
           th
-            | Current Output PPD
-            span.fa.fa-info-circle.stat-help(
-              title="Sum of locally estimated PPD for matching work units currently running or finishing.")
+            HelpBalloon(name="Current Output PPD"): p.
+              Sum of locally estimated PPD for matching work units currently
+              running or finishing.
           td(colspan="3") {{ppd_current}}
 
         tr
           th
-            | Historical Output PPD
-            span.fa.fa-info-circle.stat-help(
-              title="Estimated average output over the selected period, calculated from locally stored work unit PPD estimates and run times. This is not based on the actual credit awarded by Folding@home.")
+            HelpBalloon(name="Historical Output PPD"): p.
+              Estimated average output over the selected period, calculated
+              from locally stored work unit PPD estimates and run times. This
+              is not based on the actual credit awarded by Folding@home.
           td(colspan="3") {{ppd_historical}}
 
         tr
           th
-            | Estimated Credit
-            span.fa.fa-info-circle.stat-help(
-              title="Estimated points calculated from locally stored PPD estimates and work unit run times. This may differ from the actual credit awarded by Folding@home.")
-          td(colspan="3") {{credit_estimated_sum}}
-		  
+            HelpBalloon(name="Estimated Credit"): p.
+              Estimated points calculated from locally stored PPD estimates
+              and work unit run times. This may differ from the actual credit
+              awarded by Folding@home.
+          td(colspan="3") {{credit_estimated_sum}}		  
+ 
     HelpBalloon.header-title(name="Recent Work Unit History"): p.
       A log of recent work WUs completed by your machines.
 
@@ -377,10 +379,4 @@ export default {
 
       tr > :not(:first-child)
         width 33%
-		
-      .stat-help
-        margin-left .4em
-        cursor help
-        opacity .7
-        font-size .85em
 </style>
