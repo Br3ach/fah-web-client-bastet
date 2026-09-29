@@ -56,22 +56,6 @@ export default {
       if (this.failed) l.push(['Failed', this.failed])
       return l
     },
-  },
-
-
-  methods: {
-    async confirm_dump(mach, unit) {
-      let response = await this.$root.message(
-        'confirm', 'Dump WU?',
-        'Dumped Work Units receive no points.  ' +
-        'Are you sure you want to dump this Work Unit?',
-        [
-          {name: 'dump', icon: 'trash', text: 'Dump', class: 'button-caution'},
-          {name: 'cancel', icon: 'times'}
-        ])
-
-      if (response == 'dump') mach.dump(unit.id)
-    },
   }
 }
 </script>
@@ -97,9 +81,10 @@ export default {
     Button.button-icon(v-else, @click="$emit('pause')", icon="pause",
       title="Pause folding in this group", :disabled="!connected")
 
-UnitsView(:units="units", :columns="columns", v-slot="{unit}")
+UnitsView(:units="units", :columns="columns", v-slot="{unit}",
+  @menu="(event, unit) => $root.machine_menu(event, mach, group, unit)")
   Button.button-icon(:disabled="!unit.paused || !connected",
-    @click="confirm_dump(mach, unit)", icon="trash", title="Dump Work Unit")
+    @click="$root.confirm_dump(unit)", icon="trash", title="Dump Work Unit")
 
   Button.button-icon(:disabled="!connected",
     :route="`${mach.get_url('/log')}?q=:WU${unit.number}:`",

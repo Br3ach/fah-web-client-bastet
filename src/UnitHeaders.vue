@@ -32,14 +32,17 @@ import Unit from './unit.js'
 
 export default {
   name: 'UnitHeaders',
-  props: {columns: Array},
+  props: {columns: Array, sort: Object},
+  emits: ['sort'],
   computed: {Unit() {return Unit}}
 }
 </script>
 
 <template lang="pug">
 template(v-for="col in columns")
-  unit-header(:field="col")
+  unit-header(:field="col", :sortable="!!sort",
+    :dir="sort && sort.field == col ? sort.dir : 0",
+    @click="sort && $emit('sort', col)")
 
 .unit-header.unit-actions
   slot

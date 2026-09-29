@@ -132,6 +132,33 @@ class Machine {
   }
 
 
+  is_unsupported() {
+    const version = this.get_version()
+    return version && this.util.version_less(version, '8.3.0')
+  }
+
+
+  is_unlinked() {
+    let aid = this.get_info().account
+    let id  = (this.ctx.$adata || {}).id
+    return id ? aid != id : !aid
+  }
+
+
+  get_warnings(group = '') {
+    if (!this.is_connected()) return []
+
+    let l = []
+    let g = this.get_group(group)
+
+    if (this.is_unlinked()) l.push('Machine not linked to F@H account')
+    if (g.failed) l.push(g.failed)
+    else if (1 < g.failed_wus) l.push('Check log for errors and warnings')
+
+    return l
+  }
+
+
   is_connected() {return this.state.connected}
 
 

@@ -30,6 +30,18 @@
 import Unit from './unit.js'
 
 
+const layouts = {
+  default: {compact: false, wide: false, columns: Unit.default_columns},
+  advanced: {
+    compact: true,
+    wide:    true,
+    columns: ['Machine', 'Group Name', 'Version', 'Status Text', 'Progress',
+      'Type', 'TPF', 'ETA', 'Base Credit', 'PPD', 'Project', 'RCG', 'Timeout',
+      'Assign Time'],
+  }
+}
+
+
 export default {
   props: {account: Object, config: Object},
 
@@ -57,7 +69,13 @@ export default {
   },
 
   methods: {
-    reset_columns() {this.config.columns = Unit.default_columns}
+    reset_columns() {this.config.columns = Unit.default_columns},
+
+
+    set_layout(name) {
+      let layout = layouts[name]
+      Object.assign(this.config, layout, {columns: [...layout.columns]})
+    }
   }
 }
 </script>
@@ -74,7 +92,9 @@ fieldset.settings.view-panel
     input(v-model="config.dark", type="checkbox")
 
   .setting.compact-setting
-    HelpBalloon(name="Compact"): p Decrease gaps between display elements.
+    HelpBalloon(name="Compact"): p.
+      Show all machines in a single table with one row per Work Unit or
+      resource group.
     input(v-model="config.compact", type="checkbox")
 
   .setting.wide-setting
@@ -101,6 +121,18 @@ fieldset.settings.view-panel
       .drag-zone(title="Move disabled columns here")
         .fa.fa-trash
         DragList(:list="unused_cols", :removable="false")
+
+  .setting.layout-setting
+    HelpBalloon(name="Layout"): p.
+      Default shows each machine in its own panel with a few columns.
+      Advanced shows all machines in one full width table with more columns.
+      Both set Compact, Wide Display and Work Unit Columns which can then be
+      customized.
+    .setting-actions
+      Button(text="Default", icon="th-large", @click="set_layout('default')",
+        title="Use default layout")
+      Button(text="Advanced", icon="th-list", @click="set_layout('advanced')",
+        title="Use advanced layout")
 </template>
 
 <style lang="stylus">

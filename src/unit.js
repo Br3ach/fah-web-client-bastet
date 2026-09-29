@@ -81,6 +81,33 @@ const icons = {
 function clean_field(name) {return name.toLowerCase().replaceAll(' ', '_')}
 
 
+function to_ms(t) {return new Date(t).getTime()}
+
+
+// Raw values for sorting fields whose content is formatted
+const sort_values = {
+  status:      u => u._status_text,
+  status_text: u => u._status_text,
+  progress:    u => parseFloat(u.progress),
+  ppd:         u => u.ppd_raw,
+  eta:         u => u.eta_secs,
+  tpf:         u => u.tpf_secs,
+  os:          u => u.os_title,
+  os_text:     u => u.os_title,
+  version:     u => u.mach.get_version(),
+  deadline:    u => to_ms(u.assign.time) + u.assign.deadline * 1000,
+  timeout:     u => to_ms(u.assign.time) + u.assign.timeout * 1000,
+  run_time:    u => u.run_time_secs,
+  base_credit: u => u.assign.credit,
+  assign_time: u => to_ms(u.assign.time),
+}
+
+
+function is_blank(v) {
+  return v == undefined || v === '' || (typeof v == 'number' && !isFinite(v))
+}
+
+
 function get_os_icon(os) {
   switch (os) {
   case 'macosx':              os = 'apple';   break
@@ -94,14 +121,16 @@ class Unit {
   constructor(ctx, unit, mach) {
     this.$refresh = ctx.$refresh
     this.util     = ctx.$util
+    this.api      = ctx.$api
     this.unit     = unit
     this.mach     = mach
   }
 
   get id()          {return this.unit.id}
   get machine()     {return this.mach.get_name()}
-  get version()     {return this.mach.get_version()}
   get group()       {return this.unit.group}
+  get is_group()    {return false}
+  get row_class()   {return ''}
   get group_name()  {return this.group || 'Default'}
   get assign()      {return this.unit.assignment || {}}
   get number()      {return this.unit.number}
@@ -124,6 +153,28 @@ class Unit {
   get os_arch() {
     const {cpu} = this.mach.get_info()
     return cpu === 'amd64' ? 'x64' : (cpu || '')
+  }
+
+
+  get version() {
+    let version = this.mach.get_version()
+    if (!version || !this.mach.is_outdated()) return version
+
+    let url   = this.api.get_download_url()
+    let title = 'Client version outdated.  Click to open download page'
+
+    return `<a class="outdated" href="${url}" target="_blank"
+      title="${title}"><div class="fa fa-exclamation-triangle"></div></a>
+      ${version}`
+  }
+
+
+  get warnings() {
+    let l = this.mach.get_warnings(this.group)
+    if (!l.length) return ''
+
+    return `<div class="fa fa-exclamation-triangle unit-warning"
+      title="${l.join('\n')}"></div>`
   }
 
 
@@ -180,7 +231,9 @@ class Unit {
   }
 
 
-  get status_text() {return `${this.status} ${this._status_text}`}
+  get status_text() {
+    return `${this.status} ${this._status_text} ${this.warnings}`
+  }
 
 
   get icon()    {return icons[this.state] || 'times'}
@@ -234,17 +287,26 @@ class Unit {
   }
 
 
-  get eta() {
-    if (this.waiting) {
-      let eta = new Date(this.unit.wait).getTime() - (new Date).getTime()
-      // Use $refresh to force updates
-      return this.util.time_interval(0 < eta ? eta / 1000 : 0, this.$refresh)
+  get eta_secs() {
+    let eta
+
+    if (this.waiting) eta = (this.wait_until - new Date().getTime()) / 1000
+    else {
+      eta = this.wu_progress < 1 ? this.unit.eta : 0
+      if (typeof eta == 'string') eta = this.util.parse_interval(eta)
     }
 
-    let eta = this.wu_progress < 1 ? this.unit.eta : 0
-    if (typeof eta == 'string') eta = this.util.parse_interval(eta)
+    return 0 < eta ? eta : 0
+  }
 
-    let s = this.util.time_interval(0 < eta ? eta : 0)
+
+  get eta() {
+    let eta = this.eta_secs
+
+    // Use $refresh to force updates
+    if (this.waiting) return this.util.time_interval(eta, this.$refresh)
+
+    let s = this.util.time_interval(eta)
 
     if (this.deadline < eta)
       s = `<div class="eta-warning",
@@ -334,6 +396,27 @@ class Unit {
 
 
   get_field_content(name)       {return this[clean_field(name)]}
+
+
+  get_sort_value(name) {
+    let f = sort_values[clean_field(name)]
+    return f ? f(this) : this.get_field_content(name)
+  }
+
+
+  // dir is 1 for ascending or -1 for descending.  Blanks always sort last.
+  static sort(units, field, dir) {
+    return units.map(unit => [unit.get_sort_value(field), unit])
+      .sort(([a], [b]) => {
+        if (is_blank(a) || is_blank(b)) return is_blank(a) - is_blank(b)
+
+        let cmp = typeof a == 'number' && typeof b == 'number' ? a - b :
+          String(a).localeCompare(String(b), undefined, {numeric: true})
+
+        return dir * cmp
+      })
+      .map(e => e[1])
+  }
   static get_field_desc(name)   {return Unit.get_field(name).desc}
   static get_field_header(name) {return Unit.get_field(name).header || name}
 

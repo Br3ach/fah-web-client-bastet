@@ -36,6 +36,7 @@ export default {
     units: Array,
     columns: Array
   },
+  emits: ['menu'],
   computed: {Unit() {return Unit}}
 }
 </script>
@@ -43,9 +44,11 @@ export default {
 <template lang="pug">
 template(v-for="(unit, index) in units", :key="unit.id")
   template(v-for="col in columns")
-    UnitField(:unit="unit", :field="col", :odd="index & 1")
+    UnitField(:unit="unit", :field="col", :odd="index & 1",
+      @contextmenu="$emit('menu', $event, unit)")
 
-  .unit-field.unit-actions(:class="`row-${index & 1 ? 'odd' : 'even'}`")
+  .unit-field.unit-actions(@contextmenu="$emit('menu', $event, unit)",
+    :class="[`row-${index & 1 ? 'odd' : 'even'}`, unit.row_class]")
     slot(:unit="unit")
 </template>
 
@@ -80,4 +83,8 @@ template(v-for="(unit, index) in units", :key="unit.id")
 
   .row-even
     background var(--table-even)
+
+body.theme-compact .units-view > *
+  padding-top 1px
+  padding-bottom 1px
 </style>

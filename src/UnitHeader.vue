@@ -32,15 +32,42 @@ import Unit from './unit.js'
 
 export default {
   name: 'UnitHeader',
-  props: ['field'],
-  computed: {Unit() {return Unit}},
+  props: ['field', 'sortable', 'dir'],
+  computed: {
+    Unit() {return Unit},
+
+
+    sort_class() {
+      return [this.dir < 0 ? 'fa-chevron-down' : 'fa-chevron-up',
+        {active: this.dir}]
+    }
+  },
 }
 </script>
 
 <template lang="pug">
-.unit-header(:class="Unit.get_field_header_class(field)",
-  :title="Unit.get_field_desc(field)") {{Unit.get_field_header(field)}}
+.unit-header(:title="Unit.get_field_desc(field)",
+  :class="[Unit.get_field_header_class(field), {'unit-sortable': sortable}]")
+  | {{Unit.get_field_header(field)}}
+
+  //- Always takes space so sorting does not change column widths
+  .fa.unit-sort(v-if="sortable", :class="sort_class")
 </template>
 
 <style lang="stylus">
+.unit-header.unit-sortable
+  cursor pointer
+  user-select none
+  gap calc(var(--gap) / 2)
+
+  .unit-sort
+    font-size 70%
+    visibility hidden
+
+    &.active
+      visibility visible
+
+  &:hover .unit-sort:not(.active)
+    visibility visible
+    opacity 0.4
 </style>

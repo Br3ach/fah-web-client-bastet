@@ -54,7 +54,6 @@ function copy_account(data) {
 
 
 export default {
-  props: ['tab'],
   inheritAttrs: false,
 
 
@@ -75,17 +74,30 @@ export default {
 
   watch: {
     '$adata'() {if (this.$adata) this.init()},
+
+
+    // Remember the tab for next time
+    tab: {
+      immediate: true,
+      handler(tab) {
+        if (this.tabs.some(t => t.route == tab))
+          try {localStorage.setItem('fah-account-tab', tab)} catch (e) {}
+      }
+    }
   },
 
 
   computed: {
     tabs() {
       return [
-        {name: 'account',    icon: 'cog'},
-        {name: 'appearance', icon: 'window-maximize'},
-        {name: 'teams',      icon: 'users'},
+        {name: 'account',    route: 'settings',   icon: 'cog'},
+        {name: 'appearance', route: 'appearance', icon: 'window-maximize'},
+        {name: 'teams',      route: 'teams',      icon: 'users'},
       ]
     },
+
+
+    tab() {return this.$route.path.split('/').pop()},
 
 
     valid() {return this.mounted && this.$adata},
@@ -179,8 +191,8 @@ Dialog(:buttons="confirm_dialog_buttons", ref="confirm_dialog")
 
   .view-body(v-if="$adata")
     .account-menu
-      Button(v-for="t in tabs", :route="t.name", replace, :icon="t.icon",
-        :text="t.name", :class="{'tab-active': tab == t.name}")
+      Button(v-for="t in tabs", :route="t.route", replace, :icon="t.icon",
+        :text="t.name", :class="{'tab-active': tab == t.route}")
 
 
     router-view(:account="account_new", :config="account_new.config")

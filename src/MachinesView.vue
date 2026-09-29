@@ -27,7 +27,8 @@
 -->
 
 <script>
-import MachineView from './MachineView.vue'
+import MachineView   from './MachineView.vue'
+import MachinesTable from './MachinesTable.vue'
 
 
 function mach_cmp(a, b) {
@@ -43,11 +44,12 @@ function mach_cmp(a, b) {
 
 export default {
   name: 'MachinesView',
-  components: {MachineView},
+  components: {MachineView, MachinesTable},
 
 
   computed: {
-    machs() {return Array.from(this.$machs).sort(mach_cmp)}
+    machs()   {return Array.from(this.$machs).sort(mach_cmp)},
+    compact() {return (this.$adata.config || {}).compact}
   }
 }
 </script>
@@ -88,7 +90,9 @@ export default {
                     :disabled="$machs.is_empty",
                     title="Pause folding on all machines")
 
-    template(v-for="mach in machs")
+    MachinesTable(v-if="compact && !$machs.is_empty", :machs="machs")
+
+    template(v-else, v-for="mach in machs")
       MachineView(v-if="!mach.is_hidden()", :mach="mach")
 </template>
 
@@ -98,6 +102,7 @@ export default {
     display flex
     flex-direction column
     padding 0
+    overflow hidden
 
     .no-data
       text-align center

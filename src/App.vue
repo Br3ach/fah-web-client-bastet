@@ -34,13 +34,14 @@ import MessageDialog    from './MessageDialog.vue'
 import LoginDialog      from './LoginDialog.vue'
 import ConnectDialog    from './ConnectDialog.vue'
 import ChartsDialog     from './ChartsDialog.vue'
+import MachineMenu      from './MachineMenu.vue'
 import {watchEffect}    from 'vue'
 
 
 export default {
   components: {
     Pacify, PauseDialog, NewAccountDialog, MessageDialog, LoginDialog,
-    ConnectDialog, ChartsDialog
+    ConnectDialog, ChartsDialog, MachineMenu
   },
 
 
@@ -213,6 +214,25 @@ export default {
     async confirm_pause() {return this.$refs.pause_dialog.exec()},
 
 
+    machine_menu(event, mach, group, unit) {
+      this.$refs.machine_menu.open(event, mach, group, unit)
+    },
+
+
+    async confirm_dump(unit) {
+      let response = await this.message(
+        'confirm', 'Dump WU?',
+        'Dumped Work Units receive no points.  ' +
+        'Are you sure you want to dump this Work Unit?',
+        [
+          {name: 'dump', icon: 'trash', text: 'Dump', class: 'button-caution'},
+          {name: 'cancel', icon: 'times'}
+        ])
+
+      if (response == 'dump') unit.mach.dump(unit.id)
+    },
+
+
     async pause() {
       let state = await this.confirm_pause()
       if (state == 'pause' || state == 'finish')
@@ -234,6 +254,7 @@ MessageDialog(ref="message_dialog")
 LoginDialog(ref="login_dialog")
 ConnectDialog(ref="connect_dialog")
 ChartsDialog(ref="team_chart_dialog", :charts="$stats.charts")
+MachineMenu(ref="machine_menu")
 </template>
 
 <style lang="stylus">

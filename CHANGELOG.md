@@ -24,6 +24,16 @@ Folding@home Web Control Changelog
  - Keep the current frame when switching 3D viewer representation.
  - Show arch next to OS name. #296
  - Improved average PPD computation and est. total points on WUs tab.  @Br3ach
+ - Show all machines in one compact table, a row per WU or group.  re:#272
+ - Sort compact machine table by clicking column headers.
+ - Added actions menu button to compact table rows.
+ - Open actions menu on right-click of WU or resource group rows.
+ - Added ``Default`` and ``Advanced`` layout buttons to appearance settings.
+ - Show warning icon and tooltip in ``Status Text`` on machine problems.
+ - Show outdated client warning and download link in ``Version`` column.
+ - Link ``Machine`` column to machine details.
+ - Reduced table cell padding in compact mode.
+ - Remember last account settings tab.
 
 ## v8.5.3
  - Added user timeseries charts

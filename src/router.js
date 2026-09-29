@@ -46,6 +46,17 @@ import AccountAppearance  from './AccountAppearance.vue'
 import AccountTeams       from './AccountTeams.vue'
 
 
+// Open the last used account settings tab
+function account_tab() {
+  try {
+    let tab = localStorage.getItem('fah-account-tab')
+    if (['settings', 'appearance', 'teams'].includes(tab)) return tab
+  } catch (e) {}
+
+  return 'settings'
+}
+
+
 export default createRouter({
   history: createWebHistory(),
   routes: [
@@ -65,7 +76,7 @@ export default createRouter({
         {path: 'settings',         component: AccountSettings},
         {path: 'appearance',       component: AccountAppearance},
         {path: 'teams',            component: AccountTeams},
-        {path: ':pathMatch(.*)',   redirect: '/account/settings'},
+        {path: ':pathMatch(.*)',   redirect: () => '/account/' + account_tab()},
       ]
     }, {
       path: '/reset/:token',

@@ -37,7 +37,10 @@ export default {
 .unit-field(:class="unit.get_field_class(field, odd)",
   :title="unit.get_field_title(field)")
   div(v-if="field.toLowerCase() == 'progress'")
-    ProgressBar(:progress="unit.progress")
+    ProgressBar(v-if="unit.progress != undefined", :progress="unit.progress")
+  router-link(v-else-if="field == 'Machine' && unit.mach",
+    :to="'/' + unit.mach.get_url('/details')",
+    title="View Machine details") {{unit.machine}}
   div(v-else, v-html="unit.get_field_content(field)")
 </template>
 
@@ -50,11 +53,15 @@ export default {
     gap calc(var(--gap) / 2)
     align-items center
 
-  .eta-warning
+  .eta-warning, .unit-warning, .outdated
     color var(--warn-color)
 
+  .eta-warning, .outdated
     .fa
       font-size 10pt
+
+  .outdated
+    text-decoration none
 
   &.unit-progress > div
     width 100%
