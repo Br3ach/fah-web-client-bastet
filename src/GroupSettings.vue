@@ -28,10 +28,49 @@
 
 <script>
 export default {
-  props: ['config', 'cpus', 'gpus', 'advanced', 'version'],
+  props: ['config', 'cpus', 'cpuAffinity', 'cpuManagedMode', 'cpuLimit', 'classLimits',
+    'gpus', 'advanced', 'version'],
 
 
   computed: {
+    class_supported() {
+      return !!(this.cpuAffinity && this.cpuAffinity.class_selection &&
+        1 < (this.cpuAffinity.performance_levels || []).length)
+    },
+
+    pin_supported() {
+      return this.class_supported && (!this.cpuManagedMode ||
+        Object.values(this.config.gpus || {}).some(gpu => gpu && gpu.enabled))
+    },
+
+    pin_unavailable_reason() {
+      if (!this.class_supported)
+        return 'Unavailable: no distinct performance cores reported.'
+      return 'Unavailable: enable a GPU in this resource group to pin its helper threads.'
+    },
+
+    cpu_count_limit() {
+      const limit = this.cpuAffinity ? this.cpuLimit : this.cpus
+      if (!this.cpuManagedMode && this.config.pin_to_perf_cores && this.pin_supported)
+        return Math.min(limit, this.cpuAffinity.performance_levels[0].logical_cpus)
+      return limit
+    },
+
+    class_counts() {
+      return Array.isArray(this.config.cpu_class_counts) ?
+        this.config.cpu_class_counts : []
+    },
+
+    class_editable() {
+      return this.class_supported && this.class_counts.length ==
+        (this.cpuAffinity.performance_levels || []).length
+    },
+
+    class_total() {
+      return (this.config.cpu_class_counts || [])
+        .reduce((a, b) => a + (Number(b) || 0), 0)
+    },
+
     all_gpus() {
       let gpus = [...this.gpus]
       let ids  = {}
@@ -48,7 +87,40 @@ export default {
 
 
   methods: {
-    project_key_changed() {if (!this.config.key) this.config.key = 0}
+    pin_changed() {
+      if (!this.cpuManagedMode && this.config.pin_to_perf_cores && this.pin_supported)
+        this.config.cpus = Math.min(this.config.cpus, this.cpu_count_limit)
+    },
+
+    project_key_changed() {if (!this.config.key) this.config.key = 0},
+
+    set_cpu_mode(mode) {
+      if (mode == 'classes' && !this.class_supported) return
+      this.config.cpu_mode = mode
+      if (mode == 'classes') {
+        const levels = this.cpuAffinity.performance_levels || []
+        const saved = this.config.cpu_class_counts || []
+        this.config.cpu_class_counts = levels.map((_, i) => Number(saved[i]) || 0)
+        this.config.cpus = this.class_total
+      }
+    },
+
+    class_max(i) {
+      const current = Number(this.class_counts[i]) || 0
+      const room = Math.max(0, this.cpuLimit - this.class_total)
+      return Math.max(0, Math.min(this.classLimits[i] || 0, current + room))
+    },
+
+    set_class_count(i, raw) {
+      if (!this.class_editable || this.config.cpu_mode != 'classes') return
+      if (!Number.isInteger(i) || i < 0 || i >= this.config.cpu_class_counts.length) return
+      const value = Number(raw)
+      if (!Number.isInteger(value) || value < 0 || value > this.class_max(i)) return
+      const counts = [...this.config.cpu_class_counts]
+      counts[i] = value
+      this.config.cpu_class_counts = counts
+      this.config.cpus = counts.reduce((sum, count) => sum + (Number(count) || 0), 0)
+    }
   }
 }
 </script>
@@ -85,19 +157,31 @@ fieldset.settings.view-panel
       input(v-model="config.keep_awake", type="checkbox",
         title="Prevent system sleep when folding and not on battery")
 
-  .setting(v-if="$util.version_less('8.5.6', version)")
-    HelpBalloon(name="Pin to Perf Cores")
+  .setting.pin-setting(v-if="$util.version_less('8.5.6', version)")
+    HelpBalloon(:name="cpuManagedMode ? 'Pin GPU Helpers to Perf Cores' : 'Pin to Perf Cores'")
+      p(v-if="cpuManagedMode").
+        This setting applies only to GPU helper threads while any resource
+        group uses performance-class allocation. CPU work units use their
+        assigned CPU masks, including those in General groups.
+      p(v-if="cpuManagedMode").
+        GPU helpers share CPU resources scheduled by the operating system.
+        GPU work receives its core's minimum CPU allowance and does not
+        consume or expand into the group's exclusive CPU-folding budget.
+      p(v-else).
+        On CPUs with both performance and efficiency cores, restrict folding
+        to the performance cores. Some folding cores run much slower when
+        their work is split between fast and slow cores.
       p.
-        On CPUs with both performance and efficiency cores, such as recent
-        Intel, AMD and ARM processors, restrict folding to the performance
-        cores.  Some folding cores run much slower when their work is split
-        between fast and slow cores.
-      p.
-        This option has no effect on CPUs without efficiency cores, on macOS,
-        or if more CPUs are allocated than there are performance cores.
+        This option has no effect on CPUs without efficiency cores or on macOS.
+        For CPU work units in General mode without class allocation, enabling
+        it limits the CPU count to performance class 1 logical CPUs. SMT
+        threads count as separate logical CPUs.
 
-    input(v-model="config.pin_to_perf_cores", type="checkbox",
-      title="Only run folding cores on performance CPU cores")
+    .pin-control
+      input(v-model="config.pin_to_perf_cores", type="checkbox",
+        :disabled="!pin_supported", @change="pin_changed",
+        :title="cpuManagedMode ? 'Pin GPU helper threads to performance cores' : 'Only run folding cores on performance CPU cores'")
+      small(v-if="!pin_supported") {{ pin_unavailable_reason }}
 
 fieldset.settings.view-panel
   legend
@@ -114,10 +198,38 @@ fieldset.settings.view-panel
         CPUs if you are also doing GPU folding.  GPU folding may also need
         some CPU power.
 
-    .cpus-input
+    .cpu-mode(v-if="cpuAffinity")
+      label
+        input(type="radio", name="cpu-mode", value="count",
+          :checked="config.cpu_mode != 'classes'",
+          @change="set_cpu_mode('count')")
+        | General
+      label(:class="{disabled: !class_supported}")
+        input(type="radio", name="cpu-mode", value="classes",
+          :disabled="!class_supported", :checked="config.cpu_mode == 'classes'",
+          @change="set_cpu_mode('classes')")
+        | By performance class
+
+    .cpus-input(v-if="config.cpu_mode != 'classes'")
       input(v-model.number="config.cpus", :min="0", type="range",
-        :max="cpus", v-if="0 < cpus")
-      span {{config.cpus}} of {{cpus}}
+        :max="cpu_count_limit", v-if="0 < cpus")
+      span {{config.cpus}} of {{cpu_count_limit}}
+
+    .cpu-classes(v-else-if="class_editable")
+      .cpu-class(v-for="(level, i) in cpuAffinity.performance_levels", :key="i")
+        label Performance level {{i + 1}}{{i == 0 ? ' (fastest)' : ''}}
+        input(:value="class_counts[i]", min="0", type="range",
+          :max="class_max(i)", @input="set_class_count(i, $event.target.value)")
+        span {{class_counts[i]}} of {{classLimits[i]}}
+        small(v-if="level.available_logical_cpus < level.logical_cpus").
+          {{level.available_logical_cpus}} currently available
+      .cpu-total Total: {{class_total}} of {{cpuLimit}} logical CPUs
+
+    .cpu-classes-unavailable(v-else-if="config.cpu_mode == 'classes'")
+      span Saved performance-class allocation: {{class_total}} CPUs.
+      small.
+        Editing by class is unavailable on the current topology. The client
+        preserves these settings and uses runtime general allocation.
 
   .setting
     HelpBalloon(name="GPUs")
@@ -200,6 +312,38 @@ fieldset.settings.view-panel(v-if="advanced")
       > span
         white-space nowrap
 
+    .cpu-mode
+      display flex
+      flex-wrap wrap
+      gap var(--gap)
+
+      .disabled
+        opacity 0.5
+
+    .cpu-classes
+      display flex
+      flex-direction column
+      gap calc(var(--gap) / 2)
+
+      .cpu-class
+        display grid
+        grid-template-columns minmax(11em, auto) 1fr auto
+        gap var(--gap)
+        align-items center
+
+        small
+          grid-column 2 / 4
+
+      .cpu-total
+        text-align right
+        font-weight bold
+
+    .cpu-classes-unavailable
+      display flex
+      flex-direction column
+      gap calc(var(--gap) / 2)
+      opacity 0.8
+
     .gpus-input
       .gpu-row
         &.unsupported td
@@ -217,4 +361,12 @@ fieldset.settings.view-panel(v-if="advanced")
 
     .setting > :first-child
       width 9em
+
+    .setting.pin-setting > :first-child
+      width auto
+      flex 0 1 auto
+      min-width 0
+      text-align left
+      overflow-wrap anywhere
+
 </style>
