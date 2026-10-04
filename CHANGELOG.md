@@ -1,6 +1,15 @@
 Folding@home Web Control Changelog
 =================================
 
+## Unreleased
+ - Add CPU performance-class allocation controls and preserve unchanged saved class selections after topology changes.
+ - Cap pinned General-mode CPU counts to performance class 1 logical capacity and disable pinning when classes are unavailable.
+ - Explain GPU-helper pinning when any group uses class allocation; disable the control for groups without enabled GPUs and prevent long labels overlapping checkboxes.
+ - Display runtime CPU allocation fallback and its reason while retaining saved class preferences.
+ - Confirm settings against client updates, keep Settings open after Save and return to Machines on Cancel.
+ - Preserve unsaved settings across reconnects and handle undetected or newly detected GPUs during save confirmation.
+ - Explain that managed GPU helpers use the core's minimum CPU allowance outside the exclusive CPU-folding budget.
+
 ## v8.5.7
  - Added "Pin to Perf Cores" scheduling setting.  re:fah-client-bastet#349
  - Fix hide_empty_groups bug. re:#274
