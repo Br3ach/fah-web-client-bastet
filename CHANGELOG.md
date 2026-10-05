@@ -1,6 +1,21 @@
 Folding@home Web Control Changelog
 =================================
 
+## Unreleased
+ - Revalidate newly enabled shared GPUs against existing reservations and use neutral runtime CPU fallback messages.
+ - Remove the Pin to Perf Cores checkbox and related validation. CPU selection uses performance-class controls and GPU affinity uses reservations.
+ - Remove the experimental global SMT sibling setting and worker-placement help.
+ - Show an advisory warning at full SMT utilisation using authoritative group pool capacity. Explain a8/a9 physical-first, process-only affinity and full-pool scheduling above physical capacity.
+ - Budget GPU reservations per enabled GPU and cap the per-GPU slider accordingly. Explain separate whole-core reservations and shared zero-reservation helpers.
+
+ - Prevent GPU reservations from leaving shared GPU groups without helper CPUs. Display runtime helper CPU shortages.
+ - Add a per-group GPU physical-core reservation slider with prospective CPU capacity limits. Disable reservation edits when no GPU is selected or the client lacks support, and explain whole-core reservation versus shared GPU affinity.
+ - Add CPU performance-class allocation controls and preserve unchanged saved class selections after topology changes.
+ - Display runtime CPU allocation fallback and its reason while retaining saved class preferences.
+ - Confirm settings against client updates, keep Settings open after Save and return to Machines on Cancel.
+ - Preserve unsaved settings across reconnects and handle undetected or newly detected GPUs during save confirmation.
+ - Explain that managed GPU helpers use the core's minimum CPU allowance outside the exclusive CPU-folding budget.
+
 ## v8.5.7
  - Added "Pin to Perf Cores" scheduling setting.  re:fah-client-bastet#349
  - Fix hide_empty_groups bug. re:#274

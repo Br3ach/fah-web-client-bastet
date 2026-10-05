@@ -27,6 +27,7 @@
 -->
 
 <script>
+import {activeGPUIds} from './GPUPolicy.js'
 import CommonSettings from './CommonSettings.vue'
 import GroupSettings  from './GroupSettings.vue'
 
@@ -54,6 +55,8 @@ export default {
       group:           '',
       new_group:       '',
       confirmed:       false,
+      settings_stale:  false,
+      saving:          false,
       unlocked:        this.$util.retrieve_bool('fah-settings-unlocked'),
 
       confirm_dialog_buttons: [
@@ -66,7 +69,17 @@ export default {
 
 
   watch: {
-    'data.config'() {this.init()}
+    'data.config'() {this.init()},
+
+    connected(connected) {
+      if (!connected) {
+        if (this.config) this.settings_stale = true
+        return
+      }
+      if (this.settings_stale && !this.name_modified && !this.config_modified)
+        this.reset_settings()
+      else this.init()
+    }
   },
 
 
@@ -113,15 +126,160 @@ export default {
 
 
     modified() {
+      if (!this.connected || this.settings_stale) return false
       if (!this.valid_name) return false
       if (!(this.$refs.common || {valid: true}).valid) return false
+      if (!this.cpu_config_valid) return false
       if (this.name_modified) return true
       if (!this.config) return false
       return this.config_modified
     },
 
 
-    available_cpus() {return this.info ? this.info.cpus : 0},
+    gpu_reservation_plan() {
+      const cores = (this.cpu_affinity || {}).performance1_core_threads || []
+      let count = 0
+      let valid = true
+      for (const group of Object.values(this.groups)) {
+        const value = Number(group.gpu_reserved_cores || 0)
+        if (!Number.isInteger(value) || value < 0) valid = false
+        count += Math.max(0, value) *
+          activeGPUIds(group, (this.info || {}).gpus).length
+      }
+      if (count && (!(this.cpu_affinity || {}).gpu_cpu_reservation || count > cores.length))
+        valid = false
+      const logical = cores.slice(0, count).reduce((a, b) => a + b, 0)
+      const fast = ((this.cpu_affinity || {}).performance_levels || [])[0] || {}
+      const availableFast = fast.available_logical_cpus ?? fast.logical_cpus ??
+        cores.reduce((a, b) => a + b, 0)
+      const sharedBlocked = count > 0 && logical >= availableFast &&
+        Object.values(this.groups).some(group => !Number(group.gpu_reserved_cores || 0) &&
+          activeGPUIds(group, (this.info || {}).gpus).length > 0)
+      if (sharedBlocked) valid = false
+      return {count, valid, sharedBlocked, logical}
+    },
+
+    current_group_gpu_limit() {
+      const cores = (this.cpu_affinity || {}).performance1_core_threads || []
+      let other = 0
+      for (const [name, group] of Object.entries(this.groups))
+        if (name != this.group && activeGPUIds(group, (this.info || {}).gpus).length > 0)
+          other += (Number(group.gpu_reserved_cores) || 0) *
+            activeGPUIds(group, (this.info || {}).gpus).length
+      const selected = activeGPUIds(this.groups[this.group] || {}, (this.info || {}).gpus).length
+      return selected ? Math.floor(Math.max(0, cores.length - other) / selected) : 0
+    },
+
+    available_cpus() {
+      if (!this.info) return 0
+      const plan = this.gpu_reservation_plan
+      if (plan && plan.count)
+        return Math.max(0, (this.cpu_affinity.available ?? this.info.cpus) - plan.logical)
+      return this.info.cpus
+    },
+
+    cpu_class_capacities() {
+      const levels = (this.cpu_affinity || {}).performance_levels || []
+      const plan = this.gpu_reservation_plan
+      return levels.map((level, i) => plan && plan.count ?
+        Math.max(0, (level.available_logical_cpus ?? level.logical_cpus) - (i == 0 ? plan.logical : 0)) :
+        level.logical_cpus)
+    },
+    cpu_group_count() {
+      return Object.values(this.groups).filter(g => g.cpu_mode == 'classes' ?
+        (g.cpu_class_counts || []).some(n => Number(n) > 0) : Number(g.cpus) > 0).length
+    },
+    cpu_affinity() {return this.info ? this.info.cpu_affinity : undefined},
+
+    cpu_class_supported() {
+      return !!(this.cpu_affinity && this.cpu_affinity.class_selection &&
+        1 < (this.cpu_affinity.performance_levels || []).length)
+    },
+
+    cpu_managed_mode() {
+      return Object.values(this.groups).some(g => g.cpu_mode == 'classes') ||
+        !!(this.gpu_reservation_plan && this.gpu_reservation_plan.count)
+    },
+
+    cpu_runtime_fallback() {
+      return !!(this.cpu_affinity && this.cpu_affinity.runtime_fallback)
+    },
+
+    gpu_policy_changed() {
+      const devices = groups => Object.fromEntries(Object.entries(groups || {})
+        .map(([name, group]) => [name, activeGPUIds(group, (this.info || {}).gpus)]))
+      return !this.$util.isEqual(devices((this.initial_config || {}).groups), devices(this.groups))
+    },
+
+    cpu_policy_changed() {
+      const policy = groups => Object.fromEntries(Object.entries(groups || {})
+        .map(([name, group]) => [name, {
+          ...(group.cpu_mode == 'classes' ?
+            {mode: 'classes', counts: group.cpu_class_counts || []} :
+            {mode: 'count', cpus: Number(group.cpus) || 0}),
+          gpu_reserved_cores: activeGPUIds(group, (this.info || {}).gpus).length *
+            (Number(group.gpu_reserved_cores) || 0)
+        }]))
+      return !this.$util.isEqual(policy((this.initial_config || {}).groups),
+        policy(this.groups))
+    },
+
+    cpu_config_valid() {
+      const plan = this.gpu_reservation_plan || {count: 0, valid: true}
+      const savedGroups = (this.initial_config || {}).groups || {}
+      if (!this.cpu_policy_changed) return !this.gpu_policy_changed || !plan.sharedBlocked
+      if (!plan.valid) return false
+      if (!plan.count && (!this.cpu_managed_mode || !this.cpu_class_supported)) return true
+      const levels = (this.cpu_affinity || {}).performance_levels || []
+      let classTotals = levels.map(() => 0)
+      let total = 0
+      for (const [name, group] of Object.entries(this.groups)) {
+        if (group.cpu_mode == 'classes') {
+          let counts = group.cpu_class_counts || []
+          const saved = savedGroups[name]
+          const unchanged = saved && saved.cpu_mode == 'classes' &&
+            this.$util.isEqual(saved.cpu_class_counts || [], counts)
+          if (counts.length != levels.length && !unchanged) return false
+          for (let i = 0; i < counts.length; ++i) {
+            const value = Math.max(0, Number(counts[i]) || 0)
+            if (i < levels.length) classTotals[i] += value
+            else if (value && !unchanged) return false
+            total += value
+          }
+        } else total += Math.max(0, Number(group.cpus) || 0)
+      }
+      if (total > this.available_cpus) return false
+      return classTotals.every((n, i) => n <=
+        (this.cpu_class_capacities || levels.map(l => l.logical_cpus))[i])
+    },
+
+    current_group_cpu_limit() {
+      // The remaining budget must not jump when the first GPU core is
+      // reserved. Keep legacy clients without affinity metadata unchanged.
+      if (!this.cpu_affinity) return this.available_cpus
+      let used = 0
+      for (const [name, group] of Object.entries(this.groups)) {
+        if (name == this.group) continue
+        used += group.cpu_mode == 'classes' ?
+          (group.cpu_class_counts || []).reduce((a, b) => a + (Number(b) || 0), 0) :
+          (Number(group.cpus) || 0)
+      }
+      return Math.max(0, this.available_cpus - used)
+    },
+
+    current_group_class_limits() {
+      const levels = (this.cpu_affinity || {}).performance_levels || []
+      return levels.map((level, i) => {
+        let reserved = 0
+        for (const [name, group] of Object.entries(this.groups)) {
+          if (name == this.group || group.cpu_mode != 'classes') continue
+          reserved += Number((group.cpu_class_counts || [])[i]) || 0
+        }
+        return Math.max(0, Math.min((this.cpu_class_capacities || levels.map(l => l.logical_cpus))[i] - reserved,
+          this.current_group_cpu_limit))
+      })
+    },
+
     available_gpus() {return this.info ? this.info.gpus : {}},
 
 
@@ -137,11 +295,16 @@ export default {
 
 
   beforeRouteLeave(to, from) {
-    if (!this.modified || this.confirmed) return true
+    if ((!this.name_modified && !this.config_modified) || this.confirmed) return true
 
-    this.$refs.confirm_dialog.exec().then(response => {
+    this.$refs.confirm_dialog.exec().then(async response => {
       switch (response) {
-      case 'save': return this.save()
+      case 'save':
+        if (await this.save()) {
+          this.confirmed = true
+          this.$router.push(to)
+        }
+        return
 
       case 'discard':
         this.confirmed = true
@@ -176,10 +339,16 @@ export default {
 
     get_group_config(config) {
       let keys = ['on_idle', 'cpus', 'gpus', 'beta', 'key', 'cuda', 'hip']
+      if (this.cpu_affinity) keys = keys.concat(['cpu_mode', 'cpu_class_counts'])
       let copy = copy_keys(config, keys)
 
       copy.on_idle = !!copy.on_idle
       copy.cpus    = copy.cpus || 0
+      if (this.cpu_affinity) {
+        copy.cpu_mode = copy.cpu_mode == 'classes' ? 'classes' : 'count'
+        copy.cpu_class_counts = Array.isArray(copy.cpu_class_counts) ?
+          [...copy.cpu_class_counts] : []
+      }
       copy.beta    = !!copy.beta
       copy.key     = copy.key || 0
       copy.cuda    = copy.cuda == undefined ? true : copy.cuda
@@ -190,8 +359,8 @@ export default {
         copy.keep_awake = !!config.keep_awake
       }
 
-      if (this.$util.version_less('8.5.6', this.version))
-        copy.pin_to_perf_cores = !!config.pin_to_perf_cores
+      if (this.cpu_affinity && 'gpu_cpu_reservation' in this.cpu_affinity)
+        copy.gpu_reserved_cores = Number(config.gpu_reserved_cores) || 0
 
       let config_gpus = config.gpus || {}
       copy.gpus = {}
@@ -239,10 +408,69 @@ export default {
     },
 
 
+    reset_settings() {
+      if (!this.connected || !this.data.config) return
+      this.config = undefined
+      this.initial_config = undefined
+      this.group = ''
+      this.name = this.mach.get_name()
+      this.init()
+      this.settings_stale = !this.config
+    },
+
+    async reload_settings() {
+      if (!this.connected) return
+      if (this.name_modified || this.config_modified) {
+        const response = await this.$root.message('confirm', 'Reload settings?',
+          'Discard your unsaved edits and load the current client settings?',
+          'Cancel Reload')
+        if (response != 'reload') return
+      }
+      this.reset_settings()
+    },
+
+    async wait_for_config(saved) {
+      for (let attempt = 0; attempt < 50; ++attempt) {
+        if (!this.connected || this.settings_stale)
+          throw new Error('Client disconnected before confirming settings.')
+        const data = this.mach.get_data()
+        const actual = {}
+        if (!data.groups) actual[''] = this.get_group_config(data.config || {})
+        for (const [name, group] of Object.entries(data.groups || {}))
+          actual[name] = this.get_group_config(group.config)
+        const expectedGroups = {}
+        for (const [name, config] of Object.entries(saved.groups))
+          expectedGroups[name] = this.get_group_config(config)
+        if (this.$util.isEqual(expectedGroups, actual)) {
+          const account = this.logged_in ? {} : this.get_account_config(data.config || {})
+          const expected = {...saved}
+          delete expected.groups
+          if (this.$util.isEqual(expected, account)) return
+        }
+        await new Promise(resolve => setTimeout(resolve, 100))
+      }
+      throw new Error('The client did not confirm these settings. Your edits are still unsaved.')
+    },
+
     async save() {
+      if (!this.connected || this.settings_stale || this.saving) return false
+      this.saving = true
+      try {
       if (this.name_modified)   await this.mach.save_name(this.name)
-      if (this.config_modified) await this.mach.configure(this.config)
-      this.close()
+      if (!this.connected || this.settings_stale) return
+      if (this.config_modified) {
+        const saved_config = this.$util.deepCopy(this.config)
+        try {
+          await this.mach.configure(saved_config)
+          await this.wait_for_config(saved_config)
+          this.initial_config = saved_config
+        } catch (error) {
+          await this.$root.message('error', 'Settings were not saved', error.message)
+          return false
+        }
+      }
+      return !this.name_modified && !this.config_modified
+      } finally {this.saving = false}
     },
 
 
@@ -251,7 +479,7 @@ export default {
 
     close() {
       this.confirmed = true
-      this.$router.back()
+      this.$router.replace('/machines')
     },
 
 
@@ -344,7 +572,12 @@ Dialog.new-group-dialog(ref="new_group_dialog", buttons="Create")
       legend Account Settings
       CommonSettings(:config="config", ref="common")
 
-    .view-pane(v-if="connected && config")
+    .setting(v-if="settings_stale")
+      span The client disconnected. Reload settings before saving your edits.
+      Button(@click="reload_settings", :disabled="!connected",
+        text="Reload settings", icon="refresh")
+
+    .view-pane(v-if="connected && config && !settings_stale")
       fieldset.view-panel.resource-groups(v-if="advanced")
         legend Resource Groups
 
@@ -365,7 +598,32 @@ Dialog.new-group-dialog(ref="new_group_dialog", buttons="Create")
           | {{group ? '' : 'Default'}} Resource Group {{group}}
 
         GroupSettings(:config="groups[group]", :cpus="available_cpus",
-          :gpus="gpus", :advanced="advanced", :version="version")
+          :cpu-affinity="cpu_affinity",
+          :cpu-limit="current_group_cpu_limit", :cpu-config-valid="cpu_config_valid",
+          :class-limits="current_group_class_limits", :gpus="gpus",
+          :gpu-core-limit="current_group_gpu_limit",
+          :gpu-reserved-cores="gpu_reservation_plan.count",
+          :gpu-reserved-logical-cpus="gpu_reservation_plan.logical",
+          :cpu-group-count="cpu_group_count", :group-name="group",
+          :advanced="advanced", :version="version")
+
+        .setting.cpu-runtime-warning(v-if="gpu_reservation_plan.sharedBlocked")
+          span.fa.fa-warning
+          span.
+            These reservations leave no Performance 1 CPUs for a shared GPU
+            group. Reduce a reservation or reserve cores for every GPU group.
+
+        .setting.cpu-runtime-warning(v-if="cpu_affinity && (cpu_affinity.gpu_helper_blocked_groups || {})[group]")
+          span.fa.fa-warning
+          span {{cpu_affinity.gpu_helper_blocked_groups[group]}}
+
+        .setting.cpu-runtime-warning(v-if="cpu_runtime_fallback")
+          span.fa.fa-warning
+          span.
+            CPU allocation could not fully match your settings.
+            Your saved preferences are unchanged.
+            {{cpu_affinity.runtime_fallback_reason}}
+
 
   .actions
     Button.button-icon(v-if="!advanced && connected", @click="unlock",
