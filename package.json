@@ -2,6 +2,7 @@
   "name": "fah-web-control",
   "version": "8.5.7",
   "scripts": {
+    "test": "node --test tests/*.test.cjs",
     "dev": "vite",
     "build": "vite build",
     "serve": "vite preview"

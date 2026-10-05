@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, cpu-affinity-v5]
   pull_request:
 
 permissions: {}
@@ -23,7 +23,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Cache node modules
         uses: actions/cache@v5
@@ -35,6 +35,9 @@ jobs:
 
       - name: Install dependencies
         run: npm install
+
+      - name: Test
+        run: npm test
 
       - name: Build
         run: npm run build
