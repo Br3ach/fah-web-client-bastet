@@ -112,9 +112,13 @@ export default {
     },
 
 
+    settings_valid() {
+      return this.valid_name && (this.$refs.common || {valid: true}).valid
+    },
+
+
     modified() {
-      if (!this.valid_name) return false
-      if (!(this.$refs.common || {valid: true}).valid) return false
+      if (!this.settings_valid) return false
       if (this.name_modified) return true
       if (!this.config) return false
       return this.config_modified
@@ -240,6 +244,7 @@ export default {
 
 
     async save() {
+      if (!this.settings_valid) return
       if (this.name_modified)   await this.mach.save_name(this.name)
       if (this.config_modified) await this.mach.configure(this.config)
       this.close()
