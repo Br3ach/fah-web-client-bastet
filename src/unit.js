@@ -174,7 +174,7 @@ class Unit {
     if (!l.length) return ''
 
     return `<div class="fa fa-exclamation-triangle unit-warning"
-      title="${l.join('\n')}"></div>`
+      title="${this.util.escape_html(l.join('\n'))}"></div>`
   }
 
 
