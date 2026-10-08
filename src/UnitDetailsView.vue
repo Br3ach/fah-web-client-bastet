@@ -77,6 +77,13 @@ export default {
     fieldset.view-panel
       legend(:title="`Unit ID ${unit.id}`") Work Unit {{'#' + unit.number}}
 
+      p(v-for="warning in unit.wu_warnings", role="alert")
+        i.fa.fa-exclamation-triangle(aria-hidden="true")
+        |  {{warning}}
+
+      p(v-if="unit.unit.gpu_priority_requested").
+        Requested GPU CPU priority: {{unit.unit.gpu_priority_requested}}
+
       .info-group
         unit-info(:unit="unit", field="Status Text")
         unit-info(:unit="unit", field="Progress")

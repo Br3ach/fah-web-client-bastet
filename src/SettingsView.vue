@@ -27,17 +27,16 @@
 -->
 
 <script>
+import * as CPUPolicy from './CPUPolicy.js'
+import * as SettingsNormalization from './SettingsNormalization.js'
 import CommonSettings from './CommonSettings.vue'
 import GroupSettings  from './GroupSettings.vue'
 
 
-function copy_keys(config, keys) {
-  let copy = {}
-
-  for (let key of keys)
-    copy[key] = config[key]
-
-  return copy
+function settingsCapabilities(view) {
+  return {cpuAffinity: view.cpu_affinity, availableGPUs: view.available_gpus,
+    batterySettings: !!view.$util.version_less?.('8.3.1', view.version),
+    loggedIn: !!view.logged_in}
 }
 
 
@@ -54,19 +53,27 @@ export default {
       group:           '',
       new_group:       '',
       confirmed:       false,
+      settings_stale:  false,
+      saving:          false,
+      view_active:     true,
       unlocked:        this.$util.retrieve_bool('fah-settings-unlocked'),
 
-      confirm_dialog_buttons: [
-        {name: 'cancel',  icon: 'times'},
-        {name: 'discard', icon: 'trash'},
-        {name: 'save',    icon: 'floppy-o'}
-      ],
     }
   },
 
 
   watch: {
-    'data.config'() {this.init()}
+    'data.config'() {this.init()},
+
+    connected(connected) {
+      if (!connected) {
+        if (this.config) this.settings_stale = true
+        return
+      }
+      if (this.settings_stale && !this.name_modified && !this.config_modified)
+        this.reset_settings()
+      else this.init()
+    }
   },
 
 
@@ -88,16 +95,6 @@ export default {
     },
 
 
-    keys() {
-      let keys = ['on_idle', 'cpus', 'gpus', 'beta', 'key']
-
-      if (!this.logged_in)
-        return keys.concat(['user', 'team', 'passkey', 'cause'])
-
-      return keys
-    },
-
-
     info()    {return this.mach.get_info()},
     data()    {return this.mach.get_data()},
     groups()  {return (this.config || {}).groups || {}},
@@ -112,16 +109,111 @@ export default {
     },
 
 
+    settings_valid() {
+      return this.valid_name && (this.$refs.common || {valid: true}).valid &&
+        this.cpu_config_valid
+    },
+
+    confirm_dialog_buttons() {
+      return [
+        {name: 'cancel', icon: 'times'},
+        {name: 'discard', icon: 'trash'},
+        {name: 'save', icon: 'floppy-o', disabled: !this.modified || this.saving}
+      ]
+    },
+
     modified() {
-      if (!this.valid_name) return false
-      if (!(this.$refs.common || {valid: true}).valid) return false
+      if (!this.connected || this.settings_stale || !this.settings_valid) return false
       if (this.name_modified) return true
       if (!this.config) return false
       return this.config_modified
     },
 
 
-    available_cpus() {return this.info ? this.info.cpus : 0},
+    // Explicit policy inputs keep calculations independent of Vue state and
+    // preserve reactive tracking when topology, selection or saved intent changes.
+    active_gpus() {return CPUPolicy.activeGPUsByGroup(this.groups, this.info)},
+
+    saved_active_gpus() {
+      return CPUPolicy.activeGPUsByGroup((this.initial_config || {}).groups, this.info)
+    },
+
+    cpu_policy_inputs() {
+      return {groups: this.groups, saved_groups: (this.initial_config || {}).groups,
+        active_gpus: this.active_gpus, saved_active_gpus: this.saved_active_gpus,
+        info: this.info, cpu_affinity: this.cpu_affinity, group: this.group,
+        isEqual: (a, b) => this.$util.isEqual(a, b)}
+    },
+
+    gpu_reservation_plan() {return CPUPolicy.gpuReservationPlan(this.cpu_policy_inputs)},
+
+    current_group_gpu_limit() {return CPUPolicy.currentGroupGPULimit(this.cpu_policy_inputs)},
+
+    available_cpus() {
+      return CPUPolicy.availableCPUs({
+        ...this.cpu_policy_inputs,
+        gpu_reservation_plan: this.gpu_reservation_plan
+      })
+    },
+
+    cpu_class_capacities() {
+      return CPUPolicy.classCapacities({
+        ...this.cpu_policy_inputs,
+        gpu_reservation_plan: this.gpu_reservation_plan
+      })
+    },
+    cpu_group_count() {return CPUPolicy.cpuGroupCount(this.cpu_policy_inputs)},
+    cpu_affinity() {return this.info ? this.info.cpu_affinity : undefined},
+
+    cpu_class_supported() {return CPUPolicy.classSupported(this.cpu_policy_inputs)},
+
+    cpu_managed_mode() {
+      return CPUPolicy.managedMode({
+        ...this.cpu_policy_inputs,
+        gpu_reservation_plan: this.gpu_reservation_plan
+      })
+    },
+
+    cpu_runtime_fallback() {
+      return !this.cpu_intent_changed && !this.reservation_policy_changed && !this.gpu_selection_changed &&
+        !!(this.cpu_affinity && this.cpu_affinity.runtime_fallback)
+    },
+
+    gpu_selection_changed() {return CPUPolicy.gpuSelectionChanged(this.cpu_policy_inputs)},
+
+    cpu_intent_changed() {return CPUPolicy.cpuIntentChanged(this.cpu_policy_inputs)},
+
+    reservation_policy_changed() {return CPUPolicy.reservationPolicyChanged(this.cpu_policy_inputs)},
+
+    cpu_config_valid() {
+      return CPUPolicy.cpuConfigValid({
+        ...this.cpu_policy_inputs,
+        gpu_reservation_plan: this.gpu_reservation_plan,
+        cpu_intent_changed: this.cpu_intent_changed,
+        reservation_policy_changed: this.reservation_policy_changed,
+        gpu_selection_changed: this.gpu_selection_changed,
+        cpu_managed_mode: this.cpu_managed_mode,
+        cpu_class_supported: this.cpu_class_supported,
+        cpu_class_capacities: this.cpu_class_capacities
+      })
+    },
+
+    current_group_cpu_limit() {
+      return CPUPolicy.currentGroupCPULimit({
+        ...this.cpu_policy_inputs,
+        gpu_reservation_plan: this.gpu_reservation_plan,
+        available_cpus: this.available_cpus
+      })
+    },
+
+    current_group_class_limits() {
+      return CPUPolicy.currentGroupClassLimits({
+        ...this.cpu_policy_inputs,
+        cpu_class_capacities: this.cpu_class_capacities,
+        gpu_reservation_plan: this.gpu_reservation_plan
+      })
+    },
+
     available_gpus() {return this.info ? this.info.gpus : {}},
 
 
@@ -137,11 +229,16 @@ export default {
 
 
   beforeRouteLeave(to, from) {
-    if (!this.modified || this.confirmed) return true
+    if ((!this.name_modified && !this.config_modified) || this.confirmed) return true
 
-    this.$refs.confirm_dialog.exec().then(response => {
+    this.$refs.confirm_dialog.exec().then(async response => {
       switch (response) {
-      case 'save': return this.save()
+      case 'save':
+        if (await this.save()) {
+          this.confirmed = true
+          this.$router.push(to)
+        }
+        return
 
       case 'discard':
         this.confirmed = true
@@ -154,6 +251,9 @@ export default {
 
 
   mounted() {this.init()},
+
+
+  beforeUnmount() {this.view_active = false},
 
 
   methods: {
@@ -175,74 +275,89 @@ export default {
 
 
     get_group_config(config) {
-      let keys = ['on_idle', 'cpus', 'gpus', 'beta', 'key', 'cuda', 'hip']
-      let copy = copy_keys(config, keys)
-
-      copy.on_idle = !!copy.on_idle
-      copy.cpus    = copy.cpus || 0
-      copy.beta    = !!copy.beta
-      copy.key     = copy.key || 0
-      copy.cuda    = copy.cuda == undefined ? true : copy.cuda
-      copy.hip     = copy.hip  == undefined ? true : copy.hip
-
-      if (this.$util.version_less('8.3.1', this.version)) {
-        copy.on_battery = !!config.on_battery
-        copy.keep_awake = !!config.keep_awake
-      }
-
-      if (this.$util.version_less('8.5.6', this.version))
-        copy.pin_to_perf_cores = !!config.pin_to_perf_cores
-
-      let config_gpus = config.gpus || {}
-      copy.gpus = {}
-      for (let id in this.available_gpus) {
-        const enabled = (config_gpus[id] || {}).enabled || false
-        copy.gpus[id] = {enabled}
-      }
-
-      // Add GPUs which are enabled but not detected
-      for (const [id, gpu] of Object.entries(config_gpus))
-        if (gpu.enabled && !copy.gpus[id]) copy.gpus[id] = {enabled: true}
-
-      return copy
+      return SettingsNormalization.normalizeGroupConfig(config, settingsCapabilities(this))
     },
-
-
-    get_account_config(config) {
-      let copy = copy_keys(config, ['user', 'team', 'passkey', 'cause'])
-
-      if (!copy.cause || copy.cause == 'unspecified') copy.cause = 'any'
-      copy.cause = copy.cause.toLowerCase()
-
-      return copy
-    },
-
 
     init() {
       let config = this.data.config
       if (this.config || !config || this.$util.isEmpty(config)) return
 
-      config = this.logged_in ? {} : this.get_account_config(config)
-
-      if (!this.data.groups)
-        config.groups = {'': this.get_group_config(config)}
-
-      else {
-        config.groups = {}
-
-        for (const [name, group] of Object.entries(this.data.groups))
-          config.groups[name] = this.get_group_config(group.config)
-      }
+      config = SettingsNormalization.normalizeSettings(this.data, settingsCapabilities(this))
 
       this.config = config
       this.initial_config = this.$util.deepCopy(this.config)
     },
 
 
+    reset_settings() {
+      if (!this.connected || !this.data.config) return
+      this.config = undefined
+      this.initial_config = undefined
+      this.group = ''
+      this.name = this.mach.get_name()
+      this.init()
+      this.settings_stale = !this.config
+    },
+
+    async reload_settings() {
+      if (!this.connected) return
+      if (this.name_modified || this.config_modified) {
+        const response = await this.$root.message('confirm', 'Reload settings?',
+          'Discard your unsaved edits and load the current client settings?',
+          'Cancel Reload')
+        if (response != 'reload') return
+      }
+      this.reset_settings()
+    },
+
+    async wait_for_config(saved, submittedCapabilities) {
+      // Sending is not acknowledgement. Allow delayed readback without hammering
+      // a remote client, and keep the draft until the reported policy matches.
+      let elapsed = 0
+      let interval = 100
+      while (true) {
+        if (this.view_active === false)
+          throw new Error('Settings confirmation cancelled.')
+        if (!this.connected || this.settings_stale)
+          throw new Error('Client disconnected before confirming settings.')
+        const data = this.mach.get_data()
+        const capabilities = {
+          ...submittedCapabilities,
+          availableGPUs: this.available_gpus
+        }
+        const actual = SettingsNormalization.normalizeSettings({...data, config: data.config || {}}, capabilities)
+        const expected = SettingsNormalization.normalizeSettings(saved, capabilities)
+        if (this.$util.isEqual(expected, actual)) return
+        if (elapsed >= 30000) break
+        const delay = Math.min(interval, 30000 - elapsed)
+        await new Promise(resolve => setTimeout(resolve, delay))
+        elapsed += delay
+        interval = Math.min(1000, interval * 2)
+      }
+      throw new Error('These settings were sent, but confirmation has not arrived. Check the current settings before trying again.')
+    },
+
     async save() {
-      if (this.name_modified)   await this.mach.save_name(this.name)
-      if (this.config_modified) await this.mach.configure(this.config)
-      this.close()
+      if (!this.connected || this.settings_stale || this.saving || !this.settings_valid) return false
+      this.saving = true
+      try {
+        if (this.name_modified)   await this.mach.save_name(this.name)
+        if (!this.connected || this.settings_stale || !this.settings_valid) return false
+        if (this.config_modified) {
+          const saved_config = this.$util.deepCopy(this.config)
+          const capabilities = this.$util.deepCopy(settingsCapabilities(this))
+          try {
+            await this.mach.configure(SettingsNormalization.normalizeSettings(saved_config, capabilities))
+            await this.wait_for_config(saved_config, capabilities)
+            this.initial_config = saved_config
+          } catch (error) {
+            if (this.view_active === false) return false
+            await this.$root.message('error', 'Settings save not confirmed', error.message)
+            return false
+          }
+        }
+        return !this.name_modified && !this.config_modified
+      } finally {this.saving = false}
     },
 
 
@@ -344,7 +459,21 @@ Dialog.new-group-dialog(ref="new_group_dialog", buttons="Create")
       legend Account Settings
       CommonSettings(:config="config", ref="common")
 
-    .view-pane(v-if="connected && config")
+    .setting(v-if="settings_stale")
+      span The client disconnected. Reload settings before saving your edits.
+      Button(@click="reload_settings", :disabled="!connected",
+        text="Reload settings", icon="refresh")
+
+    .setting.cpu-runtime-warning(
+      v-if="connected && config && !settings_stale && cpu_runtime_fallback",
+      role="status")
+      span.fa.fa-warning(aria-hidden="true")
+      span.
+        Machine CPU allocation could not fully satisfy the current configuration.
+        Saved preferences are unchanged.
+        {{cpu_affinity.runtime_fallback_reason}}
+
+    .view-pane(v-if="connected && config && !settings_stale")
       fieldset.view-panel.resource-groups(v-if="advanced")
         legend Resource Groups
 
@@ -365,7 +494,27 @@ Dialog.new-group-dialog(ref="new_group_dialog", buttons="Create")
           | {{group ? '' : 'Default'}} Resource Group {{group}}
 
         GroupSettings(:config="groups[group]", :cpus="available_cpus",
-          :gpus="gpus", :advanced="advanced", :version="version")
+          :cpu-affinity="cpu_affinity",
+          :cpu-limit="current_group_cpu_limit", :cpu-config-valid="cpu_config_valid",
+          :class-limits="current_group_class_limits", :gpus="gpus",
+          :gpu-core-limit="current_group_gpu_limit",
+          :gpu-reserved-cores="gpu_reservation_plan.count",
+          :gpu-reserved-logical-cpus="gpu_reservation_plan.logical",
+          :cpu-group-count="cpu_group_count", :group-name="group",
+          :allocation-policy-changed="cpu_intent_changed || reservation_policy_changed || gpu_selection_changed",
+          :advanced="advanced", :version="version")
+
+        .setting.cpu-runtime-warning(v-if="gpu_reservation_plan.sharedBlocked")
+          span.fa.fa-warning
+          span.
+            These reservations leave no Performance 1 CPUs for a shared GPU
+            group. Reduce a reservation or reserve cores for every GPU group.
+
+        .setting.cpu-runtime-warning(v-if="cpu_affinity && (cpu_affinity.gpu_helper_blocked_groups || {})[group]")
+          span.fa.fa-warning
+          span {{cpu_affinity.gpu_helper_blocked_groups[group]}}
+
+
 
   .actions
     Button.button-icon(v-if="!advanced && connected", @click="unlock",
@@ -374,6 +523,9 @@ Dialog.new-group-dialog(ref="new_group_dialog", buttons="Create")
 
 <style lang="stylus">
 .settings-view
+  container-type inline-size
+  container-name settings-page
+
   .view-body .view-pane
     display flex
     flex-direction row
@@ -395,10 +547,15 @@ Dialog.new-group-dialog(ref="new_group_dialog", buttons="Create")
         align-items end
 
     .group-settings
+      // Fieldsets otherwise retain their content's minimum width in this flex row.
+      min-width 0
       display flex
       flex-direction column
       gap var(--gap)
       flex 1
+
+      > fieldset
+        min-width 0
 
   .actions
     display flex
@@ -414,6 +571,14 @@ Dialog.new-group-dialog(ref="new_group_dialog", buttons="Create")
 
   input
     flex 1
+
+@container settings-page (max-width: 40em)
+  .settings-view .view-body .view-pane
+    flex-direction column
+
+    .resource-groups
+      width 100%
+      min-width 0
 
 @media (max-width 800px)
   .settings-view .view-body .view-pane .resource-groups > .actions
