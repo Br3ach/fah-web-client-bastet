@@ -1,6 +1,19 @@
 Folding@home Web Control Changelog
 =================================
 
+## Unreleased
+ - Add CPU performance-class controls and preserve unchanged saved selections after topology changes. Show prospective capacity warnings; class shortages reduce workers or make jobs wait rather than move them to another level.
+ - Match backend General-mode oversubscription rules while retaining aggregate limits for class or exclusive GPU reservation configurations.
+ - Add per-resource-group, per-enabled-GPU whole-core reservations, account for their CPU capacity cost, and prevent reservations from starving shared GPU helpers. Show runtime helper shortages and allow saved reservations to be removed when GPUs are unavailable.
+ - Add platform-specific GPU folding CPU priority controls per resource group. Default to No override, apply Windows edits live during monitoring and Linux edits on the next core launch, and retain a way to remove saved overrides when GPUs are undetected.
+ - Display affinity, GPU priority and launch-environment warnings in WU status tooltips and details. Label GPU CPU priority as requested rather than measured.
+ - Show full-SMT advisories in help icons beside CPU counts, using matching per-WU status when available and draft capacity for prospective warnings. Move allocation-limit explanations into help balloons and restore scrolling when an open balloon is removed.
+ - Confirm saves against client configuration readback with capped backoff for up to 30 seconds. Retain submitted capabilities during confirmation while refreshing GPU discovery; preserve dirty drafts on failure and recheck validity after a machine rename.
+ - Keep Settings open after Save, follow the requested destination after route-leave Save, and return to the previous page on Cancel. Preserve unsaved settings across reconnects and require stale drafts to be reloaded before saving.
+ - Explain a8/a9 physical-first, process-only affinity, full-pool scheduling above physical capacity, and GPU helper accounting outside the CPU-folding worker budget.
+ - Remove the Pin to Perf Cores checkbox, its validation, and the experimental global SMT sibling setting and worker-placement help.
+ - Add policy, normalization, confirmation and warning regressions, plus Chromium coverage for narrow settings layouts, help-balloon lifecycle and WU details.
+
 ## v8.5.7
  - Added "Pin to Perf Cores" scheduling setting.  re:fah-client-bastet#349
  - Fix hide_empty_groups bug. re:#274

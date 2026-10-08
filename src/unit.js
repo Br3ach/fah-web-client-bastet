@@ -169,12 +169,24 @@ class Unit {
   }
 
 
+  get wu_warnings() {
+    return [
+      this.unit.affinity_warning,
+      this.unit.gpu_priority_warning,
+      this.unit.launch_environment_warning
+    ].filter(Boolean)
+  }
+
+
   get warnings() {
-    let l = this.mach.get_warnings(this.group)
-    if (!l.length) return ''
+    const warnings = [
+      ...this.mach.get_warnings(this.group),
+      ...this.wu_warnings
+    ]
+    if (!warnings.length) return ''
 
     return `<div class="fa fa-exclamation-triangle unit-warning"
-      title="${l.join('\n')}"></div>`
+      title="${this.util.escape_html(warnings.join('\n'))}"></div>`
   }
 
 
@@ -221,7 +233,9 @@ class Unit {
   }
 
   get status() {return `<div class="fa fa-${this.icon}"></div>`}
-  get status_title() {return this._status_text}
+  get status_title() {
+    return [this._status_text, ...this.wu_warnings].join('\n')
+  }
 
 
   get _status_text() {
@@ -395,7 +409,13 @@ class Unit {
   }
 
 
-  get_field_content(name)       {return this[clean_field(name)]}
+  get_field_content(name) {
+    const field = clean_field(name)
+    // Icon-only status columns also expose WU warnings.
+    if (field == 'status' && this.wu_warnings.length)
+      return this.status + this.warnings
+    return this[field]
+  }
 
 
   get_sort_value(name) {
