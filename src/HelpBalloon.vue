@@ -28,13 +28,24 @@
 
 <script>
 export default {
-  props: ['name'],
+  props: {
+    name: String,
+    icon: {type: String, default: 'question-circle'},
+    iconOnly: Boolean
+  },
   data() {return {active: false}},
 
+  beforeUnmount() {
+    if (this.active) this.$util.unlock_scrolling()
+  },
+
   watch: {
-    active() {
-      if (this.active) this.$util.lock_scrolling()
-      else this.$util.unlock_scrolling()
+    active: {
+      flush: 'sync',
+      handler(active) {
+        if (active) this.$util.lock_scrolling()
+        else this.$util.unlock_scrolling()
+      }
     }
   }
 }
@@ -43,7 +54,12 @@ export default {
 <template lang="pug">
 label.help-balloon(@click="active = !active")
   .help-overlay(v-show="active", @click.stop="active = false")
-  .help-name {{name}}#[.fa.fa-question-circle]
+  .help-name(:class="{'help-icon-only': iconOnly}",
+    :role="iconOnly ? 'button' : undefined", :tabindex="iconOnly ? 0 : undefined",
+    :aria-label="iconOnly ? name : undefined", :aria-expanded="iconOnly ? active : undefined",
+    @keydown.enter.prevent="active = !active", @keydown.space.prevent="active = !active")
+    template(v-if="!iconOnly") {{name}}
+    .fa(:class="'fa-' + icon", aria-hidden="true")
   span(v-if="active")
     .fa.fa-caret-left
     .help-content.view-panel(@click.stop="true")
@@ -73,6 +89,11 @@ label.help-balloon(@click="active = !active")
       font-size 50%
       vertical-align super
       margin-left 0.125em
+
+    &.help-icon-only .fa
+      font-size 100%
+      vertical-align baseline
+      margin-left 0
 
     &:hover
       color var(--highlight-color)
