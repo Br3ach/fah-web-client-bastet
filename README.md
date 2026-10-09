@@ -109,3 +109,5 @@ keep runtime ownership out of draft-policy calculations.
 
 The generated local lockfile is ignored by Git, following upstream practice.
 CI caches npm downloads rather than an installed module tree.
+
+The `cpu-affinity-v8-tests` branch contains the v8 implementation and its full regression suites. The production `cpu-affinity-v8` branch keeps upstream tests and build CI only.
