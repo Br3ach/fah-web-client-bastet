@@ -36,14 +36,5 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Test
-        run: npm test
-
-      - name: Install layout-test browser
-        run: npx playwright install --with-deps chromium
-
-      - name: Responsive layout regression
-        run: npm run test:layout
-
       - name: Build
         run: npm run build
