@@ -75,31 +75,17 @@ only after success; Cancel returns to the previous page. Unsaved drafts survive
 disconnects but must be reloaded before saving after reconnect. Machine rename and
 configuration are separate writes, so one can succeed while the other fails.
 
-## Development and tests
+## Development
 
-CI uses Node 20. Use Node 20.19 or newer within that release line for the Vite 7
-build/test toolchain. This does not change browser runtime requirements. The
-`npm test` directory entry point is intended for Node 20; newer Node versions can
-require explicit test filenames.
+CI uses Node 20. Use Node 20.19 or newer within that release line for Vite 7.
 
 ```sh
 npm install
-npm test
-npx playwright install chromium
-npm run test:layout
 npm run build
 ```
 
-The unit suite covers prospective policy, runtime display, normalization, save
-confirmation, reconnect and protocol behavior. Chromium tests render production
-SettingsView, GroupSettings and UnitDetailsView components. They check CPU/GPU
-controls at mobile widths and narrow desktop panels, help-balloon cleanup using
-real scroll utilities, and warning text, removal and requested-priority labeling
-using the production Unit adapter. External font requests are blocked.
-
-Fixtures use synthetic machine data and stub transport/services. They do not prove
-live remote-client behavior or native affinity; those checks belong to the client
-repository's tests and hardware testing.
+The full unit and Chromium regression suites, their dependencies and test CI
+are retained on the `cpu-affinity-v8-tests` branch.
 
 `src/CPUPolicy.js` validates prospective settings and calculates draft limits.
 `src/CPUStatus.js` interprets authoritative runtime allocations and SMT advisories.
