@@ -77,7 +77,7 @@ configuration are separate writes, so one can succeed while the other fails.
 
 ## Development
 
-CI uses Node 20. Use Node 20.19 or newer within that release line for Vite 7.
+CI uses Node 24. Use the same release line for local Vite 7 builds.
 
 ```sh
 npm install
