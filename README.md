@@ -77,10 +77,8 @@ configuration are separate writes, so one can succeed while the other fails.
 
 ## Development and tests
 
-CI uses Node 20. Use Node 20.19 or newer within that release line for the Vite 7
-build/test toolchain. This does not change browser runtime requirements. The
-`npm test` directory entry point is intended for Node 20; newer Node versions can
-require explicit test filenames.
+CI uses Node 24. Use the same release line for the local Vite 7 build/test
+toolchain. This does not change browser runtime requirements.
 
 ```sh
 npm install
