@@ -32,11 +32,20 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const fields = JSON.parse(fs.readFileSync('src/unit_fields.json', 'utf8'));
 const source = fs.readFileSync('src/unit.js', 'utf8');
-const context = {fields};
-vm.runInNewContext(source.replace("import fields from './unit_fields.json'", '')
+const context = {fields, toRaw: require('vue').toRaw};
+vm.runInNewContext(source.replace(/^import .*$/gm, '')
   .replace('export default Unit', 'globalThis.Unit = Unit'), context);
 const utilSource = fs.readFileSync('src/util.js', 'utf8');
 const productionUtil = new Function(utilSource.replace(/^import .*$/gm, '').replace('export default Util', 'return Util.prototype'))();
+
+test('accessible status icon retains the v8 warning tooltip', () => {
+  const unit = new context.Unit({$util: productionUtil},
+    {state: 'RUN', group: '', gpus: [], affinity_warning: 'Affinity unavailable'},
+    {get_warnings: () => [], get_config: () => ({})});
+  assert.match(unit.status, /role="img" aria-label="Running"/);
+  assert.equal(unit.status_title, 'Running\nAffinity unavailable');
+  assert.match(unit.status_icon(false), /aria-hidden="true"/);
+});
 
 test('affinity wait is visible in icon and text rows and clears with backend metadata', () => {
   const groupWarnings = ['Existing group warning'];
