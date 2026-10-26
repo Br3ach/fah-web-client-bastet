@@ -308,11 +308,18 @@ class Machine {
     } else if (Array.isArray(msg)) {
       this.state.data.do_update(msg)
 
+      // A relaunched core can replay frames from an earlier checkpoint.
+      if (this.vizUnit && msg[0] == 'units' && msg[2] == 'pid' && msg[3] != null &&
+          (this.get_data().units || [])[msg[1]]?.id == this.vizUnit)
+        await this._send_viz_enable()
+
       // Cache viz
       if (msg.length && msg[0] == 'viz') {
         let key   = msg.slice(0, -1).join('/')
         let value = msg.slice(-1)[0]
-        await this.cache.set(key, value)
+        this.vizCacheWork = (this.vizCacheWork || Promise.resolve()).then(
+          () => this.cache.set(key, value))
+        await this.vizCacheWork
       }
 
       // Trim log
@@ -329,18 +336,33 @@ class Machine {
   async _viz_get_frames(unit) {
     const data = this.get_data()
     if (!data.viz) data.viz = {}
+    let useCache = true
+
+    const wu = (data.units || []).find(wu => wu.id == unit)
+    if (wu?.start_time && wu.pid != undefined) {
+      const epoch = wu.start_time + '/' + wu.pid
+      const key = 'viz/' + unit + '/epoch'
+      this.vizCacheWork = (this.vizCacheWork || Promise.resolve()).then(async () => {
+        if (await this.cache.get(key, 0) != epoch) {
+          delete data.viz[unit]
+          useCache = await this.cache.clearPrefix('viz/' + unit + '/')
+          if (useCache) await this.cache.set(key, epoch)
+        }
+      })
+      await this.vizCacheWork
+    }
 
     // First try to load from cache
     let viz = this.get_viz(unit)
 
-    if (!viz.topology) {
+    if (!viz.topology && useCache) {
       let key = 'viz/' + unit + '/topology'
       viz.topology = await this.cache.get(key, 0)
     }
 
     if (!viz.frames) viz.frames = []
 
-    if (viz.topology) {
+    if (viz.topology && useCache) {
       for (let i = 0; i < 1000; i++) {
         if (viz.frames[i]) break
         let key = 'viz/' + unit + '/frames/' + i
