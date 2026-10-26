@@ -67,6 +67,22 @@ class Cache {
         (!timeout || Date.now() - new Date(data.ts).getTime() < timeout))
       return withStatus ? data : data.value
   }
+
+
+  async clearPrefix(prefix) {
+    let cleared = true
+    try {
+      if (!this.cache) this.cache = await caches.open(this.name)
+      for (const request of await this.cache.keys())
+        if (new URL(request.url).pathname.includes('/' + prefix) &&
+            !await this.cache.delete(request)) cleared = false
+    } catch (e) {cleared = false}
+
+    if (this._cache)
+      for (const key of Object.keys(this._cache))
+        if (key.startsWith(prefix)) delete this._cache[key]
+    return cleared
+  }
 }
 
 
